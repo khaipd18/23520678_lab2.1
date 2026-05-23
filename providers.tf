@@ -4,10 +4,10 @@ provider "aws" {
 
 terraform {
   backend "s3" {
-    bucket         = "lab02-1-23520678"
-    key            = "lab2/terraform.tfstate"
-    region         = "ap-southeast-1"
-    encrypt        = true
+    bucket  = "lab02-1-23520678"
+    key     = "lab2/terraform.tfstate"
+    region  = "ap-southeast-1"
+    encrypt = true
   }
   required_providers {
     aws = {
