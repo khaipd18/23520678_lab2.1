@@ -1,102 +1,103 @@
-# 23520678_lab1
-## 🏗 Kiến Trúc Tổng Thể
+# 🚀 Triển Khai Hạ Tầng AWS Tự Động Hóa Với Terraform & GitHub Actions (Lab 2.1)
 
-Hạ tầng được triển khai bao gồm một VPC chính với hai lớp mạng riêng biệt:
-*   **Public Subnet:** Kết nối Internet thông qua Internet Gateway (IGW). Chứa Public EC2 (đóng vai trò như một Bastion Host).
-*   **Private Subnet:** Không có Public IP, chỉ kết nối ra Internet một chiều thông qua NAT Gateway. Chứa Private EC2.
-
+Dự án này triển khai hạ tầng mạng và máy chủ tính toán trên Amazon Web Services (AWS) sử dụng công cụ **Terraform**. Toàn bộ quy trình triển khai được tự động hóa hoàn toàn thông qua **GitHub Actions (CI/CD)**, kết hợp cùng **Checkov** để quét lỗ hổng bảo mật cấu hình (DevSecOps) và xác thực không mật khẩu bằng **AWS OIDC**.
 
 ---
 
-## 📂 Cấu Trúc Thư Mục
+## 🏗 1. Kiến Trúc Tổng Thể
 
-Dự án được phân tách thành ba module độc lập và được điều phối bởi các tệp cấu hình tại thư mục gốc:
+Hạ tầng được cấp phát bao gồm:
+* **VPC (Virtual Private Cloud):** Dải mạng riêng lập `10.18.0.0/16`.
+* **Public Subnet:** Chứa Public EC2 (Bastion Host) và NAT Gateway, có kết nối trực tiếp Internet qua Internet Gateway (IGW).
+* **Private Subnet:** Chứa Private EC2, không có Public IP, chỉ kết nối Internet một chiều qua NAT Gateway.
+* **Security Groups:** Kiểm soát truy cập SSH chặt chẽ.
+* **Terraform Backend:** Quản lý file trạng thái (`terraform.tfstate`) tập trung trên Amazon S3.
+* **IAM OIDC Provider:** Phân quyền truy cập tạm thời và an toàn cho GitHub Actions.
 
-```text
-.
-├── main.tf                # Điều phối, gọi các module và truyền tham số
-├── variables.tf           # Chứa các biến môi trường (Region, CIDR, Key Pair...)
-├── modules/
-│   ├── vpc/               # Chứa cấu hình VPC, Subnets, IGW, NAT Gateway, Route Tables
-│   ├── sg/                # Chứa cấu hình Security Groups (Public & Private)
-│   └── ec2/               # Chứa cấu hình khởi tạo các EC2 Instances (AMI Amazon Linux 2)
+---
+
+## ⚙️ 2. Yêu Cầu & Cài Đặt Môi Trường (Prerequisites)
+
+Để có thể chạy được mã nguồn này, bạn cần chuẩn bị môi trường AWS và GitHub như sau:
+
+### 2.1. Chuẩn bị trên AWS
+1.  **Tài khoản AWS:** Có quyền quản trị (AdministratorAccess).
+2.  **Khởi tạo S3 Bucket (Backend):**
+    * Tạo một bucket S3 với tên chính xác là `lab02-1-23520678` tại Region `ap-southeast-1`.
+    * Mục đích: Để lưu trữ tập tin trạng thái (`.tfstate`) của Terraform.
+3.  **Thiết lập OIDC Provider (Xác thực không mật khẩu):**
+    * Vào **AWS IAM** > **Identity providers** > **Add provider**.
+    * Chọn OpenID Connect.
+    * Provider URL: `https://token.actions.githubusercontent.com`
+    * Audience: `sts.amazonaws.com`
+4.  **Tạo IAM Role cho GitHub Actions:** * Tạo Role thông qua code Terraform (lần chạy nội bộ đầu tiên) hoặc tạo tay với tên `github-actions-terraform-role`.
+    * Cấp quyền `AdministratorAccess`.
+    * Chỉnh sửa *Trust Relationship* để giới hạn chỉ cho phép Repository GitHub này truy cập.
+
+### 2.2. Chuẩn bị trên GitHub Repository
+1.  Truy cập vào kho lưu trữ chứa mã nguồn này trên GitHub.
+2.  Vào **Settings** > **Secrets and variables** > **Actions**.
+3.  Thêm một Secret mới:
+    * **Name:** `AWS_ACCOUNT_ID`
+    * **Secret:** `[Nhập 12 chữ số Account ID AWS của bạn]`
+
+---
+
+## 🚀 3. Cách Chạy Mã Nguồn (Tự Động Hóa)
+
+Hệ thống đã được thiết lập CI/CD Pipeline. Bạn **không cần** cài đặt Terraform hay cấu hình AWS CLI trên máy cá nhân để triển khai hạ tầng.
+
+**Các bước chạy mã nguồn:**
+
+1. Clone dự án về máy:
+```bash
+   git clone https://github.com/khaipd18/23520678_lab2.1.git
+   cd 23520678_lab2.1
 ```
 
+2. Thực hiện thay đổi trên mã nguồn (Ví dụ: Thêm tài nguyên mới hoặc tinh chỉnh file `variables.tf`).
 
-## 🧩 Chi Tiết Các Module
+3. Đẩy (Push) mã nguồn lên nhánh `main`:
+```bash
+   git add .
+   git commit -m "feat: deploy aws infrastructure"
+   git push origin main
+```
 
-### 1. Module VPC (`modules/vpc`)
-*   **VPC & Subnets:** Một VPC được khởi tạo làm môi trường chứa toàn bộ tài nguyên. Bên trong VPC, hai subnet được phân chia: Public Subnet (cho phép cấp phát Public IP tự động) và Private Subnet (chỉ sử dụng địa chỉ IP nội bộ).
-*   **Gateways:**
-    *   `Internet Gateway (IGW)`: Được gắn vào VPC để cung cấp kết nối Internet cho Public Subnet.
-    *   `NAT Gateway`: Được triển khai tại Public Subnet và được cấp phát một Elastic IP tĩnh. Cơ chế này cho phép các tài nguyên trong Private Subnet khởi tạo kết nối ra ngoài Internet mà không để lộ địa chỉ IP nội bộ.
-*   **Route Tables:** Bảng định tuyến được cấu hình riêng cho từng subnet — traffic từ Public Subnet được dẫn qua IGW, trong khi traffic từ Private Subnet được định tuyến qua NAT Gateway.
-
-### 2. Module Security Groups (`modules/sg`)
-*   **Public Security Group:** Cổng 22 (SSH) được mở có chọn lọc — chỉ cho phép kết nối từ địa chỉ IP xác định của máy thực hành.
-    > **Lưu ý:** Đây là biện pháp bảo mật nhằm hạn chế Attack Surface. Tuy nhiên, nếu môi trường mạng sử dụng IP động (như KTX, Wifi công cộng), cần cập nhật lại Rule này mỗi khi IP nguồn thay đổi để tránh lỗi *Connection Timed Out*. Ở đây sẽ mở `0.0.0.0/0` chỉ với mục đích test.
-*   **Private Security Group:** Được cấu hình chặt chẽ hơn — chỉ chấp nhận kết nối SSH từ nguồn là chính Public Security Group, loại bỏ hoàn toàn khả năng truy cập trực tiếp từ bên ngoài.
-
-### 3. Module EC2 (`modules/ec2`)
-*   Sử dụng **Amazon Machine Image (AMI) Amazon Linux 2** phiên bản mới nhất cho cả hai máy ảo.
-*   **Public EC2:** Được đặt trong Public Subnet, có địa chỉ IP công cộng để phục vụ kết nối SSH từ máy thực hành.
-*   **Private EC2:** Được đặt trong Private Subnet, không được cấp Public IP. Mọi kết nối vào máy này đều phải thực hiện gián tiếp thông qua Public EC2.
+4. Ngay khi nhận được sự kiện Push, GitHub Actions sẽ tự động kích hoạt Pipeline thực hiện tuần tự:
+   - **Job 1:** Quét bảo mật mã nguồn bằng Checkov.
+   - **Job 2:** Khởi tạo Backend S3, lập kế hoạch (`terraform plan`) và triển khai hạ tầng thực tế (`terraform apply`).
 
 ---
 
-## 🚀 Hướng Dẫn Triển Khai
+## 🔍 4. Cách Kiểm Tra Kết Quả Triển Khai
 
-**Yêu cầu hệ thống:**
-*   Đã cài đặt [Terraform](https://developer.hashicorp.com/terraform/downloads).
-*   Đã cấu hình AWS CLI với quyền truy cập (Access Key/Secret Key).
-*   Đã tạo sẵn Key Pair trên AWS hoặc tạo cục bộ.
+Sau khi bạn đã Push code lên GitHub, hãy nghiệm thu kết quả theo các bước sau:
 
-**Các bước thực hiện:**
-1. Clone repository này về máy.
-2. Cập nhật các thông số (tên Key Pair, AWS Region, dải địa chỉ IP...) trong tệp `variables.tf`.
-3. Khởi tạo Terraform:
-   ```bash
-   terraform init
-   ```
-4. Kiểm tra kế hoạch triển khai:
-    ```bash
-    terraform plan
-    ```
-5. Áp dụng triển khai tài nguyên:
-    ```bash
-    terraform apply -auto-approve
-    ```
+### 4.1. Kiểm tra trên GitHub Actions
 
- ---   
+- Vào tab **Actions** trên Repository.
+- Chọn workflow **"Terraform Deploy & Checkov Scan"** mới nhất.
+- Kết quả thành công khi cả 2 job `Checkov Security Scan` và `Terraform Deploy` đều hiển thị trạng thái **Success** (✅ Tích xanh).
 
-## 🧪 Kết Quả Kiểm Thử (Test Cases)
+### 4.2. Kiểm tra trên AWS Management Console
 
-### 🔹 Test Case 1: Kiểm tra kết nối SSH vào Public EC2
-*   **Phương pháp:** Sử dụng tệp khóa `.pem` kết hợp với địa chỉ IP công cộng để thực hiện SSH từ máy thực hành.
-*   **Kết quả:** 
-    *   ✅ Kết nối thành công với tư cách người dùng `ec2-user`.
-    
+- **Dịch vụ VPC** (`ap-southeast-1`): Xác nhận có `Lab01-VPC`, các Subnet, Internet Gateway và NAT Gateway tương ứng.
+- **Dịch vụ EC2**: Chuyển sang mục **Instances**, xác nhận có 2 máy chủ:
+  - `Lab01-Public-EC2` (Trạng thái **Running**, có Public IP).
+  - `Lab01-Private-EC2` (Trạng thái **Running**, không có Public IP).
+- **Dịch vụ S3**: Mở bucket `lab02-1-23520678`, vào thư mục `lab2/` và kiểm tra sự tồn tại của tệp `terraform.tfstate`.
 
 ---
 
-### 🔹 Test Case 2: Kiểm tra kết nối Internet qua Internet Gateway
-*   **Phương pháp:** Từ phiên SSH trên Public EC2, thực thi lệnh `ping 8.8.8.8`.
-*   **Kết quả:** 
-    *   ✅ Các gói tin được truyền và nhận thành công. Xác nhận Public Subnet có khả năng truy cập Internet thông qua IGW.
+## 🧹 5. Dọn Dẹp Tài Nguyên (Clean-up)
 
----
+Để tránh phát sinh chi phí sau khi kiểm tra xong, bạn có thể xóa toàn bộ hạ tầng đã tạo.
 
-### 🔹 Test Case 3: Kiểm tra cơ chế kiểm soát truy cập của Private SG
-*   **Phương pháp:** Từ phiên SSH trên Public EC2, sử dụng Agent Forwarding hoặc chuyển tệp khóa để SSH tiếp vào địa chỉ IP nội bộ của Private EC2 (ví dụ: `10.18.2.x`).
-*   **Kết quả:**
-    *   ✅ **Luồng hợp lệ:** Kết nối từ Public EC2 sang Private EC2 thành công.
-    *   ⛔ **Luồng bị chặn:** Kết nối SSH trực tiếp từ máy thực hành đến Private EC2 bị từ chối *(Timeout)*. Xác nhận Private Security Group hoạt động đúng thiết kế (chỉ nhận traffic nội bộ) và máy tính không thể bị truy cập trực tiếp do không có Public IP.
-    
+Chạy lệnh thủ công trên máy trạm (yêu cầu đã cấu hình AWS CLI):
 
----
-
-### 🔹 Test Case 4: Kiểm tra kết nối Internet qua NAT Gateway
-*   **Phương pháp:** Từ phiên SSH trên Private EC2, thực thi lệnh `ping 8.8.8.8` hoặc `sudo yum update`.
-*   **Kết quả:** 
-    *   ✅ Lệnh thực thi thành công. Máy có thể tải về các bản cập nhật và kết nối ra ngoài Internet bình thường dù không được cấp Public IP. Điều này xác nhận cơ chế định tuyến qua NAT Gateway hoạt động hoàn hảo.
-    
+```bash
+terraform init
+terraform destroy -auto-approve
+```
+   
